@@ -108,6 +108,13 @@ def render(tier: str) -> dict:
         md("## A. Setup"),
         code(
             "import os\n"
+            # Kaggle gives 2x T4; without this, Accelerate auto-shards the model across both
+            # GPUs and every multi-GPU forward pass crashes with a cross-device tensor error.
+            # Must be set before torch/unsloth import anywhere, so it lives in the first cell.
+            'os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")\n'
+            # Cheap safety net against "just barely OOM" from allocator fragmentation
+            # between stages (one T4 process loads/frees several models in sequence).
+            'os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")\n'
             f'os.environ["COMPUTE_TIER"] = "{tier}"\n'
             "# NB4 judges automatically with a panel of two local reward models (no key needed).\n"
             "# Optional API judge as a cross-check (two A/B orders):\n"
@@ -119,7 +126,14 @@ def render(tier: str) -> dict:
         code(f"!pip install -q {pins}" + (' "vllm>=0.10"' if big else "")),
         code(
             "from pathlib import Path\n"
-            f'WORK = Path("{WORKDIR}")\n'
+            "# Kaggle only persists /kaggle/working on commit; Colab only has /content.\n"
+            "# Auto-detect so the same notebook can run unattended on either.\n"
+            'if os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):\n'
+            '    WORK = Path("/kaggle/working/lab22")\n'
+            'elif Path("/content").is_dir():\n'
+            f'    WORK = Path("{WORKDIR}")\n'
+            "else:\n"
+            '    WORK = Path.cwd() / "lab22_work"\n'
             '(WORK / "lab22").mkdir(parents=True, exist_ok=True)\n'
             "os.chdir(WORK)\n"
             "print(Path.cwd())"
@@ -128,7 +142,8 @@ def render(tier: str) -> dict:
     ]
     for module in sorted((REPO / "lab22").glob("*.py")):
         body = module.read_text(encoding="utf-8")
-        cells.append(code(f"%%writefile {WORKDIR}/lab22/{module.name}\n{body}"))
+        # Relative to WORK (we already os.chdir'd there) so it works under /content or /kaggle/working.
+        cells.append(code(f"%%writefile lab22/{module.name}\n{body}"))
     for i, (stem, kind) in enumerate(STAGES):
         if i:
             # One Colab kernel runs every stage, so drop the previous stage's GPU objects.

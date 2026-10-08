@@ -282,14 +282,20 @@ def sanity_accuracy(score: Scorer) -> float:
 
 
 def make_rm_scorer(name: str | Path, max_length: int = 4096) -> Scorer:
-    """Load a sequence-classification reward model (e.g. Skywork-Reward-V2) on the GPU."""
+    """Load a sequence-classification reward model (e.g. Skywork-Reward-V2) on the GPU.
+
+    4-bit NF4, like every other model in the lab: a 4B-param judge in fp16 needs ~8GB,
+    which doesn't reliably fit a 15GB T4 alongside whatever the previous generation
+    stage left allocated. 4-bit cuts that to ~2-3GB.
+    """
     import torch
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer, BitsAndBytesConfig
 
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16  # T4: fp16
     tok = AutoTokenizer.from_pretrained(name)
+    quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=dtype, bnb_4bit_quant_type="nf4")
     rm = AutoModelForSequenceClassification.from_pretrained(
-        name, dtype=dtype, device_map="cuda:0", attn_implementation="sdpa", num_labels=1
+        name, dtype=dtype, device_map="cuda:0", attn_implementation="sdpa", num_labels=1, quantization_config=quant
     ).eval()
 
     def score(prompt: str, answer: str) -> float:

@@ -59,8 +59,10 @@ print(f"sum log p = {total.item():.3f}   mean log p = {mean.item():.3f}")
 # %%
 def my_dpo_loss(pc, pr, rc, rr, beta=0.1):
     """pc/pr: policy log-prob chosen/rejected; rc/rr: reference. Trả về loss trung bình."""
-    # TODO: viết bằng torch.nn.functional.logsigmoid
-    return None
+    chosen_reward = beta * (pc - rc)
+    rejected_reward = beta * (pr - rr)
+    loss = -torch.nn.functional.logsigmoid(chosen_reward - rejected_reward)
+    return loss.mean()
 
 
 # %%
@@ -114,6 +116,22 @@ for name, (pc_, pr_) in scenarios.items():
     print(f"{name:28s} loss {loss.item():.3f}  reward chosen {cr.item():+.1f}  rejected {rj.item():+.1f}")
 
 # %% [markdown]
+# **Trả lời câu hỏi (NB0 §2):** vì sao margin có thể tăng dù log-xác suất của câu `chosen` lại giảm?
+#
+# Loss DPO chỉ phụ thuộc vào **margin** `β[(log π(y_w) − log π_ref(y_w)) − (log π(y_l) − log π_ref(y_l))]`,
+# tức hiệu của hai reward ngầm, không phụ thuộc trực tiếp vào từng reward riêng lẻ. Gradient tối ưu hoá
+# đi theo hướng *nhanh nhất* làm margin tăng — không quan tâm margin tăng vì `chosen` được đẩy lên hay vì
+# `rejected` bị đẩy xuống *nhanh hơn*. Ở kịch bản B phía trên, cả hai log-prob đều giảm so với reference,
+# nhưng `rejected` giảm nhiều hơn (−5 so với −3 nat) nên hiệu số (margin) vẫn tăng 2 nat giống hệt kịch
+# bản A, và loss giống hệt nhau — DPO "không phân biệt được" hai trường hợp này vì công thức chỉ nhìn
+# vào hiệu số. Đây gọi là **likelihood displacement** (Razin et al. 2024): rất hay gặp trong thực tế vì
+# kéo cả hai log-prob xuống (dễ) thường rẻ hơn về mặt gradient so với chỉ kéo `chosen` lên (khó, vì
+# `chosen` đã có xác suất tương đối cao). Hệ quả là mô hình có thể "thắng" về margin trong khi câu trả
+# lời `chosen` thực tế trở nên *kém khả dĩ hơn* dưới mô hình đang học — chỉ nhìn đường cong margin ở NB3
+# sẽ không thấy được điều này, phải tách riêng `rewards/chosen` và `rewards/rejected`. RPO (thêm NLL của
+# `chosen` vào loss, xem ô bên dưới) và SimPO/ORPO (dùng log-prob *trung bình theo token* thay vì tổng)
+# là hai cách giảm hiện tượng này.
+#
 # **RPO** thêm NLL của câu chosen vào loss: kịch bản B bị phạt vì chosen bị đẩy xuống.
 
 # %%

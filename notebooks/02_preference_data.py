@@ -54,7 +54,14 @@ train_ds, eval_ds = D.load_preference_pairs(
 )
 D.assert_disjoint(list(train_ds), list(eval_ds))
 print(f"train={len(train_ds)}  eval={len(eval_ds)}  (no prompt overlap)")
-print(train_ds[0])
+
+# Đọc kỹ 3 cặp mẫu: chosen có thực sự tốt hơn, hay chỉ dài hơn? (rubric NB2, 8đ)
+for i in range(3):
+    row = train_ds[i]
+    print(f"\n--- cặp mẫu {i + 1} ---")
+    print(f"PROMPT: {row['prompt'][0]['content']}")
+    print(f"CHOSEN: {row['chosen'][0]['content']}")
+    print(f"REJECTED: {row['rejected'][0]['content']}")
 
 # %% [markdown]
 # ## 2. Thiên vị độ dài

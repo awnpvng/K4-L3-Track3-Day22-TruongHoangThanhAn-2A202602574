@@ -12,14 +12,19 @@ from pathlib import Path
 from . import config as C
 
 
-def load_model(name: str | Path, max_len: int = C.MAX_LEN, load_in_4bit: bool = True):
+def load_model(name: str | Path, max_len: int = C.MAX_LEN, load_in_4bit: bool = True, device_map: str = "cuda:0"):
     from unsloth import FastLanguageModel
 
+    # Without an explicit device_map, Accelerate can decide under memory pressure to
+    # offload some layers to the CPU (meta device). Unsloth's Triton kernels (e.g.
+    # fast_rms_layernorm) then crash on a CPU tensor instead of raising a clear OOM.
+    # Pinning to a single GPU trades a silent, confusing crash for a loud, fixable one.
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=str(name),
         max_seq_length=max_len,
         dtype=None,
         load_in_4bit=load_in_4bit,
+        device_map=device_map,
     )
     # Qwen3 ships a dedicated pad token. Reusing EOS as pad would mask the
     # end-of-turn token out of the loss and teach the model never to stop.
